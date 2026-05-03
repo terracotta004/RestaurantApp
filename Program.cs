@@ -10,8 +10,11 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<Db>((sp, options) =>
 {
-    options.UseNpgsql("Host=localhost;Port=5432;Username=restaurant_user;Password=restaurant;Database=restaurant");
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.UseNpgsql(connectionString);
 });
+
+builder.Logging.AddSimpleConsole(c => c.SingleLine = true);
 
 var app = builder.Build();
 
@@ -42,20 +45,23 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
-builder.Logging.AddSimpleConsole(c => c.SingleLine = true);
-
-// app.Run();
-
-builder.Services.AddDbContext<Db>((sp, options) =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseNpgsql(connectionString);
-});
-
 await using var scope = app.Services.CreateAsyncScope();
 var db = scope.ServiceProvider.GetRequiredService<Db>();
-var canConnect = await db.Database.CanConnectAsync();
-app.Logger.LogInformation("Can connect to database: {CanConnect}", canConnect);
+try
+{
+    await db.Database.OpenConnectionAsync();
+    app.Logger.LogInformation("Connected to database.");
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "Could not connect to database.");
+}
+finally
+{
+    await db.Database.CloseConnectionAsync();
+}
+
+// app.Run();
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
