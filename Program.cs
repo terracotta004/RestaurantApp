@@ -1,3 +1,7 @@
+using System.ComponentModel.DataAnnotations;
+using System.Net.Sockets;
+using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,15 +12,25 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+
 builder.Services.AddDbContext<Db>((sp, options) =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     options.UseNpgsql(connectionString);
 });
 
 builder.Logging.AddSimpleConsole(c => c.SingleLine = true);
 
+builder.Services.AddHealthChecks()
+    .AddNpgSql(connectionString);
+
 var app = builder.Build();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -45,23 +59,7 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
-await using var scope = app.Services.CreateAsyncScope();
-var db = scope.ServiceProvider.GetRequiredService<Db>();
-try
-{
-    await db.Database.OpenConnectionAsync();
-    app.Logger.LogInformation("Connected to database.");
-}
-catch (Exception ex)
-{
-    app.Logger.LogError(ex, "Could not connect to database.");
-}
-finally
-{
-    await db.Database.CloseConnectionAsync();
-}
-
-// app.Run();
+app.Run();
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
@@ -71,6 +69,25 @@ record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 
 public class Db(DbContextOptions<Db> options) : DbContext(options)
 {
-
+    public DbSet<Restaurant> Restaurants { get; set; } = null!;
 }
 
+public class Restaurant
+{
+    public int Id { get; set; }
+
+    [MaxLength(100)]
+    public required string Name { get; set; }
+
+    [MaxLength(500)]
+    public string? Description { get; set; }
+
+    [MaxLength(255)]
+    public string? Address { get; set; }
+
+    [MaxLength(25)]
+    public string? Phone { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+}
